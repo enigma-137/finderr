@@ -2,17 +2,34 @@ import { StyleSheet, Text, View, FlatList, TextInput, TouchableOpacity, Alert } 
 import React, { useState, useEffect } from "react";
 import { supabase, getCurrentUser } from "@/constants/supabase";
 import { useLocalSearchParams } from "expo-router";
-import CryptoJS from 'crypto-js';
+import * as Crypto from 'expo-crypto';
 
-const ENCRYPTION_KEY = 'mySecretKey'; // In production, use proper key management
+const ENCRYPTION_KEY = 'mySecretKey123456mySecretKey123456'; // In production, we are to use proper key management
 
+// Simple XOR encryption (for basic obfuscation)
+// For production, consider using expo-crypto with proper key derivation
 const encryptMessage = (message: string) => {
-  return CryptoJS.AES.encrypt(message, ENCRYPTION_KEY).toString();
+  const key = ENCRYPTION_KEY;
+  let encrypted = '';
+  for (let i = 0; i < message.length; i++) {
+    encrypted += String.fromCharCode(message.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+  }
+  return btoa(encrypted); // Base64 encode
 };
 
 const decryptMessage = (encryptedMessage: string) => {
-  const bytes = CryptoJS.AES.decrypt(encryptedMessage, ENCRYPTION_KEY);
-  return bytes.toString(CryptoJS.enc.Utf8);
+  try {
+    const key = ENCRYPTION_KEY;
+    const decoded = atob(encryptedMessage); // Base64 decode
+    let decrypted = '';
+    for (let i = 0; i < decoded.length; i++) {
+      decrypted += String.fromCharCode(decoded.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+    }
+    return decrypted;
+  } catch (err) {
+    console.error('Decryption error:', err);
+    return '';
+  }
 };
 
 const ChatScreen = () => {
@@ -121,32 +138,38 @@ const ChatScreen = () => {
       return;
     }
 
-    console.log('Before encrypt');
-    // const encrypted = encryptMessage(inputText);
-    const encrypted = inputText; // Temporarily disable encryption for testing
-    console.log('After encrypt', encrypted);
-    console.log('Sending message:', { conversation_id: conversationId, sender_id: currentUser.id, content: encrypted });
-    console.log('About to insert');
     try {
-      const { error } = await supabase
+      console.log('Original message:', inputText);
+      const encrypted = encryptMessage(inputText);
+      console.log('Encrypted message:', encrypted);
+      console.log('Encrypted length:', encrypted.length);
+      
+      // Test decryption immediately
+      const testDecrypt = decryptMessage(encrypted);
+      console.log('Test decrypt:', testDecrypt);
+      console.log('Decryption matches:', testDecrypt === inputText);
+
+      const { data, error } = await supabase
         .from('messages')
         .insert({
           conversation_id: conversationId,
           sender_id: currentUser.id,
           content: encrypted
-        });
-      console.log('Insert done', { error });
+        })
+        .select();
+
+      console.log('Insert response:', { data, error });
 
       if (error) {
-        console.error('Send error:', error);
-        Alert.alert('Error', 'Failed to send message');
+        console.error('Send error details:', JSON.stringify(error, null, 2));
+        Alert.alert('Error', `Failed to send message: ${error.message}`);
       } else {
         console.log('Message sent successfully');
         setInputText('');
       }
     } catch (err) {
       console.error('Insert exception:', err);
-      Alert.alert('Error', 'Failed to send message');
+      Alert.alert('Error', `Failed to send message: ${err}`);
     }
   };
 
@@ -155,7 +178,7 @@ const ChatScreen = () => {
       styles.messageContainer,
       item.sender_id === currentUser?.id ? styles.sent : styles.received
     ]}>
-      <Text style={styles.messageText}>{item.content}</Text>
+      <Text style={item.sender_id === currentUser?.id ? styles.SendMessageText : styles.messageText}>{item.content}</Text>
     </View>
   );
 
@@ -166,6 +189,7 @@ const ChatScreen = () => {
         keyExtractor={(item) => item.id}
         renderItem={renderMessage}
         style={styles.messagesList}
+        contentContainerStyle={styles.messagesContent}
       />
       <View style={styles.inputContainer}>
         <TextInput
@@ -173,7 +197,8 @@ const ChatScreen = () => {
           value={inputText}
           onChangeText={setInputText}
           placeholder="Type a message..."
-          placeholderTextColor="#888"
+          placeholderTextColor="#999"
+          multiline
         />
         <TouchableOpacity style={styles.sendButton} onPress={sendMessage}>
           <Text style={styles.sendButtonText}>Send</Text>
@@ -188,54 +213,99 @@ export default ChatScreen;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#214723',
+    backgroundColor: '#FFFFFF',
   },
   messagesList: {
     flex: 1,
-    padding: 10,
+  },
+  messagesContent: {
+    padding: 16,
   },
   messageContainer: {
-    maxWidth: '70%',
-    padding: 10,
-    borderRadius: 10,
-    marginVertical: 5,
+    maxWidth: '75%',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    marginVertical: 4,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   sent: {
     alignSelf: 'flex-end',
-    backgroundColor: '#214723',
+    backgroundColor: '#379f3d',
+    borderBottomRightRadius: 4,
+    
   },
   received: {
     alignSelf: 'flex-start',
-    backgroundColor: '#333',
+    backgroundColor: '#E9ECEF',
+    borderBottomLeftRadius: 4,
   },
   messageText: {
-    color: 'white',
+    fontSize: 16,
+    lineHeight: 20,
+    
   },
+  SendMessageText: {
+    fontSize: 16,
+    lineHeight: 20,
+    color: '#FFFFFF',
+    
+  },
+  // sent: {
+  //   alignSelf: 'flex-end',
+  //   backgroundColor: '#007AFF',
+  //   borderBottomRightRadius: 4,
+  // },
+  // received: {
+  //   alignSelf: 'flex-start',
+  //   backgroundColor: '#E9ECEF',
+  //   borderBottomLeftRadius: 4,
+  // },
+  // messageText: {
+  //   fontSize: 16,
+  //   lineHeight: 20,
+  //   color: '#FFFFFF',
+  // },
   inputContainer: {
     flexDirection: 'row',
-    padding: 10,
-    backgroundColor: '#fdffff',
+    padding: 12,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#E5E5E5',
+    alignItems: 'flex-end',
   },
   input: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#555',
-    borderRadius: 20,
-    paddingHorizontal: 15,
+    borderColor: '#E5E5E5',
+    borderRadius: 24,
+    paddingHorizontal: 16,
     paddingVertical: 10,
-    color: 'white',
-    backgroundColor: '#444',
+    fontSize: 16,
+    color: '#000000',
+    backgroundColor: '#F8F9FA',
+    maxHeight: 100,
   },
   sendButton: {
-    marginLeft: 10,
-    backgroundColor: '#214723',
-    borderRadius: 20,
-    paddingHorizontal: 20,
+    marginLeft: 8,
+    backgroundColor: '#379f3d',
+    borderRadius: 24,
+    paddingHorizontal: 24,
     paddingVertical: 10,
     justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 70,
   },
   sendButtonText: {
-    color: 'white',
-    fontWeight: 'bold',
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 16,
   },
 });
